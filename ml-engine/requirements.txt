@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+SQLAlchemy
+alembic
+pandas
+scikit-learn
+PyMuPDF
+python-dotenv
+psycopg[binary]
+aiosqlite
+python-multipart

@@ -1,0 +1,12 @@
+{
+  "statementId": "demo-00000000-0000-0000-0000-000000000000",
+  "filename": "demo_statement_jan_2024.csv",
+  "bankDetected": "HDFC",
+  "totalTransactions": 50,
+  "summary": {
+    "totalDebit": 42850,
+    "totalCredit": 75000,
+    "byCategory": {},
+    "anomalies": []
+  }
+}

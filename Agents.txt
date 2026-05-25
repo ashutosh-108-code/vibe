@@ -1,0 +1,88 @@
+# AGENTS.md — Finance Tracker
+
+## What we are building
+An ML-powered expense tracker for Indian users. Users upload their bank
+statements (CSV or PDF), the backend parses and categorizes every
+transaction using a hybrid rule-based + scikit-learn ML model, then the
+frontend displays charts, spending summaries, and plain-language insights
+in English and Hindi.
+
+## Tech stack (exact — do not deviate)
+- Frontend : Next.js 14 (App Router) + Tailwind CSS + Recharts + Lucide React
+- Backend  : Python FastAPI only (NO Node.js — single backend for hackathon speed)
+- Database : PostgreSQL via Supabase (free tier)
+- ML       : scikit-learn MultinomialNB + TfidfVectorizer + IsolationForest
+- PDF parse: PyMuPDF (fitz)
+- CSV parse: pandas
+- Deploy   : Vercel (frontend) + Railway (backend)
+
+## Ports
+- Frontend : http://localhost:3000
+- Backend  : http://localhost:8000
+- DB       : Supabase (remote only, use DATABASE_URL from .env)
+
+## Absolute rules — never break these
+1. NO authentication or login for MVP — every endpoint is public
+2. NO image/OCR parsing — CSV and PDF only
+3. NO push notifications — in-app alerts only
+4. NO XGBoost — MultinomialNB is faster, good enough at 94%+
+5. NO Node.js backend — FastAPI handles everything
+6. NO paid APIs — all ML runs locally
+7. ALL currency in Indian Rupees, formatted as ₹1,23,456 (Indian numbering)
+8. ALWAYS handle errors with try/except (Python) and try/catch (JS)
+9. NEVER store raw file bytes in the database — only extracted text + metadata
+10. ALWAYS add CORS middleware to FastAPI (frontend is on a different port)
+
+## Fixed category list (8 categories — never add or remove)
+Food, Transport, Groceries, Rent, EMI, Shopping, Investments, Other
+
+## Color map for categories (use exact hex in all charts and badges)
+Food        → #F59E0B  (amber)
+Transport   → #3B82F6  (blue)
+Groceries   → #10B981  (emerald)
+Rent        → #8B5CF6  (violet)
+EMI         → #EF4444  (red)
+Shopping    → #EC4899  (pink)
+Investments → #06B6D4  (cyan)
+Other       → #64748B  (slate)
+
+## Icon map (Lucide React — use exact icon names)
+Food        → UtensilsCrossed
+Transport   → Car
+Groceries   → ShoppingCart
+Rent        → Home
+EMI         → CreditCard
+Shopping    → ShoppingBag
+Investments → TrendingUp
+Other       → MoreHorizontal
+
+## Design system (exact values — do not change)
+Primary bg  : #F8FAFC
+Header/nav  : #1E293B
+Success     : #10B981
+Warning     : #F59E0B
+Error       : #EF4444
+Neutral     : #64748B
+Font        : Inter (import from Google Fonts)
+Border radius: 8px on all cards and inputs
+Spacing grid : 4px / 8px system
+Shadows     : shadow-sm on cards, no shadow on buttons unless hovered
+
+## What to build in order (follow this sequence)
+1. FastAPI backend skeleton with CORS and health check
+2. ML categorizer (rule-based + trained MultinomialNB)
+3. PDF + CSV file parsers
+4. POST /api/upload endpoint (full pipeline)
+5. GET /api/stats and GET /api/insights endpoints
+6. PostgreSQL schema + Supabase connection
+7. Next.js frontend scaffold with Tailwind
+8. Upload page with drag-and-drop
+9. Dashboard page with charts (Recharts donut + bar)
+10. Transaction table with search and re-categorize
+11. Insights panel (plain language + Hindi toggle)
+12. Demo mode with mock data
+13. Deploy config (Vercel + Railway)
+
+## File to never touch
+- .env (exists, do not read or modify — just reference env variable names)
+- /ml-engine/data/training_data.py (exists, do not regenerate)
