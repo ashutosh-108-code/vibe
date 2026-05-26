@@ -68,7 +68,7 @@ export function TransactionTable({
   return (
     <div className="space-y-4">
       {/* Search and Filter Bar */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between bg-slate-50 p-4 rounded-lg border border-slate-200">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between bg-slate-50/70 p-4 rounded-lg border border-slate-200/80">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
           <input
@@ -76,7 +76,7 @@ export function TransactionTable({
             placeholder="Search by merchant or description..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-slate-500 focus:border-slate-500 bg-white transition"
+            className="w-full pl-9 pr-4 py-2 text-sm border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-[#10B981] bg-white shadow-sm transition-all duration-200"
           />
         </div>
         <div className="flex items-center gap-2">
@@ -84,7 +84,7 @@ export function TransactionTable({
           <select
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
-            className="text-sm border border-slate-300 rounded-md px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-slate-500 focus:border-slate-500 cursor-pointer"
+            className="text-sm border border-slate-200 rounded-md px-3.5 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-[#10B981] cursor-pointer shadow-sm transition-all duration-200 font-medium text-slate-700"
           >
             <option value="all">All Categories</option>
             {CATEGORIES.map(cat => (
@@ -97,14 +97,14 @@ export function TransactionTable({
       {/* Table container */}
       <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm">
         <table className="w-full text-left text-sm border-collapse">
-          <thead className="bg-[#1E293B] text-white text-xs uppercase tracking-wider">
+          <thead className="bg-[#1E293B] text-slate-200 text-xs uppercase tracking-wider border-b border-slate-800">
             <tr>
-              <th className="px-5 py-3.5 font-medium">Date</th>
-              <th className="px-5 py-3.5 font-medium">Merchant & Detail</th>
-              <th className="px-5 py-3.5 font-medium">Category</th>
-              <th className="px-5 py-3.5 font-medium text-right">Amount</th>
-              <th className="px-5 py-3.5 font-medium">Type</th>
-              <th className="px-5 py-3.5 font-medium text-center">Actions</th>
+              <th className="px-5 py-4 font-semibold">Date</th>
+              <th className="px-5 py-4 font-semibold">Merchant & Detail</th>
+              <th className="px-5 py-4 font-semibold">Category</th>
+              <th className="px-5 py-4 font-semibold text-right">Amount</th>
+              <th className="px-5 py-4 font-semibold">Type</th>
+              <th className="px-5 py-4 font-semibold text-center">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -157,7 +157,7 @@ export function TransactionTable({
                           value={transaction.category}
                           onChange={(e) => handleCategoryChange(transaction.id, e.target.value as Category)}
                           className={[
-                            "text-xs bg-slate-50 hover:bg-slate-100 border border-slate-200 hover:border-slate-300 rounded px-2.5 py-1.5 font-medium transition focus:outline-none cursor-pointer",
+                            "text-xs bg-slate-50 hover:bg-slate-100 border border-slate-200 hover:border-slate-300 rounded-md px-2.5 py-1.5 font-semibold transition focus:outline-none focus:ring-2 focus:ring-slate-400/20 cursor-pointer shadow-sm",
                             updatingId === transaction.id ? "opacity-50 cursor-wait" : ""
                           ].join(" ")}
                         >

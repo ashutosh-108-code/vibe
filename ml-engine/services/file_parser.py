@@ -1,13 +1,15 @@
 # ml-engine/services/file_parser.py
+
 import re
 from datetime import datetime
 from io import BytesIO, StringIO
+from typing import List, Dict, Optional, Tuple
 
 import fitz  # PyMuPDF
 import pandas as pd
 
 # ─────────────────────────────────────────────────────────────────────────────
-# BANK COLUMN MAPS (unchanged from original)
+# BANK COLUMN MAPS (for CSV/table parsing)
 # ─────────────────────────────────────────────────────────────────────────────
 
 BANK_COLUMN_MAPS = {
@@ -47,6 +49,12 @@ BANK_COLUMN_MAPS = {
         "debit": ["withdrawal", "debit", "dr"],
         "credit": ["deposit", "credit", "cr"],
     },
+    "UNION": {
+        "date": ["Date"],
+        "description": ["Particulars"],
+        "debit": ["Withdrawal"],
+        "credit": ["Deposit"],
+    },
 }
 
 GENERIC_COLUMN_HINTS = {
@@ -78,44 +86,41 @@ SKIP_LINE_KEYWORDS = frozenset({
     "account number", "account holder name", "account holder address",
 })
 
-
 # ─────────────────────────────────────────────────────────────────────────────
-# ① FORMAT DETECTION  (NEW)
+# ① FORMAT DETECTION (enhanced with bank names from CODE 1)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _detect_pdf_source(first_page_text: str) -> str:
     """
     Inspect the first page of a PDF and return which app/bank produced it.
-    Returns one of: 'GPAY' | 'PHONEPE' | 'PAYTM' | 'UNION' | 'BANK_GENERIC'
+    Returns one of: 'GPAY' | 'PHONEPE' | 'PAYTM' | 'UNION' | 'HDFC' | 'SBI' | 'ICICI' | 'BANK_GENERIC'
     """
     t = first_page_text.lower()
 
-    # Google Pay — exact header from your real PDF
-    if "google pay" in t and (
-        "transaction statement" in t or "paid to" in t or "received from" in t
-    ):
+    # UPI apps
+    if "google pay" in t and ("transaction statement" in t or "paid to" in t or "received from" in t):
         return "GPAY"
-
-    # PhonePe — their PDF always starts with "PhonePe" and uses "Debited" / "Credited"
     if "phonepe" in t or ("phone pe" in t and "utr" in t):
         return "PHONEPE"
-
-    # Paytm
     if "paytm" in t and ("transaction history" in t or "wallet" in t):
         return "PAYTM"
 
-    # Union Bank — from your other real PDF
+    # Banks
     if "union bank" in t or "ubin" in t:
         return "UNION"
+    if "hdfc" in t:
+        return "HDFC"
+    if "state bank" in t or "sbi" in t:
+        return "SBI"
+    if "icici" in t:
+        return "ICICI"
 
     return "BANK_GENERIC"
 
-
 # ─────────────────────────────────────────────────────────────────────────────
-# ② GOOGLE PAY PARSER  (NEW — based on your real gpay PDF)
+# ② GOOGLE PAY PARSER
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Matches: "10 Apr, 2026"  or  "10 Apr 2026"
 _GPAY_DATE_RE = re.compile(
     r"(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[,\s]+\d{4})",
     re.IGNORECASE,
@@ -124,7 +129,6 @@ _GPAY_TIME_RE = re.compile(r"(\d{1,2}:\d{2}\s*[AP]M)", re.IGNORECASE)
 _GPAY_AMOUNT_RE = re.compile(r"₹\s*([\d,]+(?:\.\d{1,2})?)")
 _GPAY_TXN_ID_RE = re.compile(r"UPI\s+Transaction\s+ID[:\s]+(\d+)", re.IGNORECASE)
 
-# Merchant keywords for categorizing clean GPay names
 _GPAY_CATEGORY_RULES = {
     "Food": [
         "swiggy", "zomato", "dominos", "mcdonald", "kfc", "burger king",
@@ -168,95 +172,57 @@ _GPAY_PERSON_SUFFIXES = re.compile(
     re.IGNORECASE,
 )
 
-
-def _gpay_categorize(name: str, direction: str) -> tuple[str, str]:
-    """Return (category, cleaned_name) for a Google Pay transaction."""
+def _gpay_categorize(name: str, direction: str) -> Tuple[str, str]:
     if direction == "credit":
         if "google pay reward" in name.lower() or "cashback" in name.lower():
             return "Income", "Google Pay Cashback"
         return "Income", name.title()
 
     name_lower = name.lower()
-
     for category, keywords in _GPAY_CATEGORY_RULES.items():
         if any(kw in name_lower for kw in keywords):
             return category, name.title()
 
-    # Heuristic: names with person-surname patterns → P2P Transfer
     if _GPAY_PERSON_SUFFIXES.search(name):
         return "Transfer", name.title()
 
-    # 2+ words with no business keyword → probably a person
     words = name.strip().split()
     if len(words) >= 2 and all(w.isalpha() for w in words[:2]):
         return "Transfer", name.title()
 
     return "Other", name.title()
 
-
-def _parse_gpay_pdf(file_bytes: bytes) -> list[dict]:
-    """
-    Parse a Google Pay transaction statement PDF.
-
-    Real format (verified against gpay_statement_20260201_20260430.pdf):
-
-        Date & time          Transaction details                    Amount
-        ─────────────────────────────────────────────────────────────────
-        10 Apr, 2026         Paid to Abhinash Mahato               ₹500
-        03:18 PM             UPI Transaction ID: 646690656657
-                             Paid by Union Bank of India 7123
-
-        10 Apr, 2026         Received from Google Pay rewards       ₹21
-        03:18 PM             UPI Transaction ID: 372349901006
-                             Paid to Union Bank of India 7123
-
-    Strategy:
-      1. Split full text on every GPay date ("10 Apr, 2026").
-      2. Inside each block find: time, Paid-to/Received-from name,
-         UPI Transaction ID, and ₹ amount.
-    """
+def _parse_gpay_pdf(file_bytes: bytes) -> List[Dict]:
     doc = fitz.open(stream=file_bytes, filetype="pdf")
     full_text = "".join(page.get_text() for page in doc)
     doc.close()
 
-    transactions: list[dict] = []
-
-    # Split at every date occurrence — each slice is one transaction block
+    transactions = []
     segments = _GPAY_DATE_RE.split(full_text)
-    # segments = [preamble, date1, block1, date2, block2, …]
-
     i = 1
     while i + 1 < len(segments):
         date_raw = segments[i].strip()
-        block    = segments[i + 1]
+        block = segments[i + 1]
         i += 2
 
-        # ── time ──────────────────────────────────────────────────
         time_m = _GPAY_TIME_RE.search(block)
         time_str = time_m.group(1) if time_m else ""
 
-        # ── direction + counterparty name ─────────────────────────
-        paid_m = re.search(
-            r"Paid\s+to\s+(.+?)(?:\n|UPI\s+Transaction)", block, re.IGNORECASE
-        )
-        recv_m = re.search(
-            r"Received\s+from\s+(.+?)(?:\n|UPI\s+Transaction)", block, re.IGNORECASE
-        )
+        paid_m = re.search(r"Paid\s+to\s+(.+?)(?:\n|UPI\s+Transaction)", block, re.IGNORECASE)
+        recv_m = re.search(r"Received\s+from\s+(.+?)(?:\n|UPI\s+Transaction)", block, re.IGNORECASE)
 
         if paid_m:
             direction = "debit"
-            raw_name  = paid_m.group(1).strip()
+            raw_name = paid_m.group(1).strip()
         elif recv_m:
             direction = "credit"
-            raw_name  = recv_m.group(1).strip()
+            raw_name = recv_m.group(1).strip()
         else:
-            continue  # not a transaction block
+            continue
 
-        # ── UPI transaction ID ────────────────────────────────────
         txn_m = _GPAY_TXN_ID_RE.search(block)
         upi_ref = txn_m.group(1) if txn_m else ""
 
-        # ── amount (last ₹NNN in block is the transaction amount) ─
         amounts = _GPAY_AMOUNT_RE.findall(block)
         if not amounts:
             continue
@@ -268,28 +234,22 @@ def _parse_gpay_pdf(file_bytes: bytes) -> list[dict]:
         if amount <= 0:
             continue
 
-        # ── parse date ────────────────────────────────────────────
         std_date = _parse_gpay_date(date_raw)
-
-        # ── categorize ───────────────────────────────────────────
         category, merchant = _gpay_categorize(raw_name, direction)
 
         transactions.append({
-            "date":            std_date,
+            "date": std_date,
             "raw_description": f"{'Paid to' if direction == 'debit' else 'Received from'} {raw_name}",
-            "merchant":        merchant,
-            "amount":          amount,
-            "type":            direction,
-            "category":        category,
-            "upi_ref":         upi_ref,
-            "source":          "gpay",
+            "merchant": merchant,
+            "amount": amount,
+            "type": direction,
+            "category": category,
+            "upi_ref": upi_ref,
+            "source": "gpay",
         })
-
     return transactions
 
-
 def _parse_gpay_date(raw: str) -> str:
-    """Convert '10 Apr, 2026' → '2026-04-10'."""
     cleaned = raw.replace(",", "").strip()
     for fmt in ("%d %b %Y", "%d %B %Y"):
         try:
@@ -298,41 +258,10 @@ def _parse_gpay_date(raw: str) -> str:
             continue
     return cleaned
 
-
 # ─────────────────────────────────────────────────────────────────────────────
-# ③ PHONEPE PARSER  (NEW)
+# ③ PHONEPE PARSER
 # ─────────────────────────────────────────────────────────────────────────────
 
-# PhonePe exports two different PDF layouts depending on the app version:
-#
-# Layout A (older app):
-#   DEBITED
-#   Paid to Swiggy
-#   Date: 10 Apr 2026, 03:18 PM
-#   Amount: -₹450.00
-#   UTR: 646652487595
-#   Status: Completed
-#
-# Layout B (newer app / web export):
-#   Apr 10, 2026 03:18 PM   Swiggy               -₹450.00   Completed
-#                            UTR: 646652487595
-#
-# We handle both.
-
-_PE_BLOCK_SPLIT = re.compile(
-    r"(?:DEBITED|CREDITED|Sent|Received|Paid to|Received from)",
-    re.IGNORECASE,
-)
-_PE_DATE_RE = re.compile(
-    r"(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[,\s]+\d{4}"
-    r"|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},?\s+\d{4})",
-    re.IGNORECASE,
-)
-_PE_AMOUNT_RE = re.compile(r"[+\-]?₹\s*([\d,]+(?:\.\d{1,2})?)")
-_PE_UTR_RE    = re.compile(r"UTR[:\s]+(\d+)", re.IGNORECASE)
-_PE_STATUS_RE = re.compile(r"\b(Completed|Failed|Pending|Reversed)\b", re.IGNORECASE)
-
-# PhonePe table layout B — tab/space separated
 _PE_TABLE_ROW_RE = re.compile(
     r"((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s+\d{4})"
     r"\s+(\d{1,2}:\d{2}\s*[AP]M)\s+"
@@ -341,85 +270,59 @@ _PE_TABLE_ROW_RE = re.compile(
     r"(Completed|Failed|Pending)",
     re.IGNORECASE,
 )
+_PE_DATE_RE = re.compile(
+    r"(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[,\s]+\d{4}"
+    r"|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},?\s+\d{4})",
+    re.IGNORECASE,
+)
+_PE_AMOUNT_RE = re.compile(r"[+\-]?₹\s*([\d,]+(?:\.\d{1,2})?)")
+_PE_UTR_RE = re.compile(r"UTR[:\s]+(\d+)", re.IGNORECASE)
+_PE_STATUS_RE = re.compile(r"\b(Completed|Failed|Pending|Reversed)\b", re.IGNORECASE)
 
-
-def _parse_phonepe_pdf(file_bytes: bytes) -> list[dict]:
-    """
-    Parse a PhonePe transaction history PDF.
-
-    Handles both Layout A (block-per-transaction) and
-    Layout B (table row per transaction).
-    """
+def _parse_phonepe_pdf(file_bytes: bytes) -> List[Dict]:
     doc = fitz.open(stream=file_bytes, filetype="pdf")
     full_text = "".join(page.get_text() for page in doc)
     doc.close()
 
-    # Try Layout B (table) first — faster and cleaner
     transactions = _parse_phonepe_table(full_text)
     if transactions:
         return transactions
-
-    # Fall back to Layout A (block format)
     return _parse_phonepe_blocks(full_text)
 
-
-def _parse_phonepe_table(text: str) -> list[dict]:
-    """PhonePe Layout B: one transaction per table row."""
-    transactions: list[dict] = []
-
+def _parse_phonepe_table(text: str) -> List[Dict]:
+    transactions = []
     for match in _PE_TABLE_ROW_RE.finditer(text):
         date_raw, time_raw, name, amount_raw, status = match.groups()
-
         if status.lower() in ("failed", "reversed"):
             continue
-
         amount_str = amount_raw.replace("₹", "").replace(",", "").strip()
-        direction  = "credit" if amount_str.startswith("+") else "debit"
+        direction = "credit" if amount_str.startswith("+") else "debit"
         try:
             amount = abs(float(amount_str.lstrip("+-")))
         except ValueError:
             continue
-
         std_date = _parse_pe_date(date_raw)
         category, merchant = _gpay_categorize(name.strip(), direction)
-
         transactions.append({
-            "date":            std_date,
+            "date": std_date,
             "raw_description": name.strip(),
-            "merchant":        merchant,
-            "amount":          amount,
-            "type":            direction,
-            "category":        category,
-            "upi_ref":         "",
-            "source":          "phonepe",
+            "merchant": merchant,
+            "amount": amount,
+            "type": direction,
+            "category": category,
+            "upi_ref": "",
+            "source": "phonepe",
         })
-
     return transactions
 
-
-def _parse_phonepe_blocks(text: str) -> list[dict]:
-    """PhonePe Layout A: block of lines per transaction."""
-    transactions: list[dict] = []
-
-    # Typical block:
-    #   DEBITED\nPaid to Swiggy\nDate: 10 Apr 2026, 03:18 PM\n
-    #   Amount: -₹450.00\nUTR: 646652487595\nStatus: Completed
-
-    # Split by the DEBITED / CREDITED header line
+def _parse_phonepe_blocks(text: str) -> List[Dict]:
+    transactions = []
     blocks = re.split(r"\n(?=DEBITED|CREDITED)", text, flags=re.IGNORECASE)
-
     for block in blocks:
         if not block.strip():
             continue
-
-        # Direction
         first_line = block.strip().split("\n")[0].upper()
-        if "CREDIT" in first_line:
-            direction = "credit"
-        else:
-            direction = "debit"
-
-        # Counterparty name — line after DEBITED/CREDITED
+        direction = "credit" if "CREDIT" in first_line else "debit"
         lines = [l.strip() for l in block.strip().split("\n") if l.strip()]
         name = ""
         for line in lines[1:3]:
@@ -430,11 +333,9 @@ def _parse_phonepe_blocks(text: str) -> list[dict]:
                 name = line
                 break
 
-        # Date
         date_m = _PE_DATE_RE.search(block)
         std_date = _parse_pe_date(date_m.group(1)) if date_m else datetime.today().strftime("%Y-%m-%d")
 
-        # Amount
         amount_m = _PE_AMOUNT_RE.search(block)
         if not amount_m:
             continue
@@ -445,33 +346,27 @@ def _parse_phonepe_blocks(text: str) -> list[dict]:
         if amount <= 0:
             continue
 
-        # Skip failed / reversed
         status_m = _PE_STATUS_RE.search(block)
         if status_m and status_m.group(1).lower() in ("failed", "reversed"):
             continue
 
-        # UTR
         utr_m = _PE_UTR_RE.search(block)
         utr = utr_m.group(1) if utr_m else ""
 
         category, merchant = _gpay_categorize(name or "Unknown", direction)
-
         transactions.append({
-            "date":            std_date,
+            "date": std_date,
             "raw_description": f"{'Paid to' if direction == 'debit' else 'Received from'} {name}",
-            "merchant":        merchant,
-            "amount":          amount,
-            "type":            direction,
-            "category":        category,
-            "upi_ref":         utr,
-            "source":          "phonepe",
+            "merchant": merchant,
+            "amount": amount,
+            "type": direction,
+            "category": category,
+            "upi_ref": utr,
+            "source": "phonepe",
         })
-
     return transactions
 
-
 def _parse_pe_date(raw: str) -> str:
-    """Convert various PhonePe date strings → YYYY-MM-DD."""
     cleaned = raw.replace(",", "").strip()
     for fmt in ("%d %b %Y", "%b %d %Y", "%d %B %Y", "%B %d %Y"):
         try:
@@ -480,20 +375,157 @@ def _parse_pe_date(raw: str) -> str:
             continue
     return cleaned
 
+# ─────────────────────────────────────────────────────────────────────────────
+# ④ UNION BANK PARSER
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _parse_union_bank_upi(particulars: str) -> Dict:
+    p = particulars.strip()
+    result = {
+        "merchant": particulars[:40],
+        "category": "Other",
+        "sub_type": "unknown"
+    }
+
+    if "BY CASH" in p.upper():
+        result["merchant"] = "Cash Deposit"
+        result["category"] = "Other"
+        result["sub_type"] = "cash"
+        return result
+
+    upi_pattern = re.match(r"(UPIAB|UPIAR)/(\d+)/(CR|DR)/(.+?)/([A-Z]+)/(.+)", p, re.IGNORECASE)
+    if not upi_pattern:
+        return result
+
+    direction = upi_pattern.group(3).upper()
+    name_raw = upi_pattern.group(4).strip()
+    bank_code = upi_pattern.group(5).upper()
+    upi_id = upi_pattern.group(6).strip()
+
+    known_services = {
+        "goog-payments": ("Google Pay Cashback", "Other"),
+        "googlepay": ("Google Pay Cashback", "Other"),
+        "paytmqr": ("PaytmQR Shop", "Shopping"),
+        "paytm.": ("Paytm Shop", "Shopping"),
+        "bharatpe": ("BharatPe Shop", "Shopping"),
+        "phonepe": ("PhonePe", "Other"),
+        "amazonpay": ("Amazon Pay", "Shopping"),
+        "juspay": ("JusPay Merchant", "Shopping"),
+        "razorpay": ("Razorpay Merchant", "Shopping"),
+        "swiggy": ("Swiggy", "Food"),
+        "zomato": ("Zomato", "Food"),
+        "ola": ("Ola Cabs", "Transport"),
+        "uber": ("Uber", "Transport"),
+        "irctc": ("IRCTC Trains", "Transport"),
+        "fastag": ("FASTag Toll", "Transport"),
+        "airp": ("Airport/Air Ticket", "Transport"),
+        "bses": ("Electricity Bill", "Utilities"),
+        "bescom": ("Electricity Bill", "Utilities"),
+        "tatapower": ("Electricity Bill", "Utilities"),
+        "jio": ("Jio Recharge", "Utilities"),
+        "airtel": ("Airtel Recharge", "Utilities"),
+        "netflix": ("Netflix", "Entertainment"),
+        "spotify": ("Spotify", "Entertainment"),
+    }
+
+    upi_lower = upi_id.lower()
+    for key, (service_name, category) in known_services.items():
+        if key in upi_lower:
+            result["merchant"] = service_name
+            result["category"] = category
+            result["sub_type"] = "merchant"
+            return result
+
+    name_lower = name_raw.lower()
+    name_merchant_map = {
+        "google i": ("Google Pay Cashback", "Other"),
+        "swiggy": ("Swiggy", "Food"),
+        "zomato": ("Zomato", "Food"),
+        "amazon": ("Amazon", "Shopping"),
+        "flipkart": ("Flipkart", "Shopping"),
+        "irctc": ("IRCTC", "Transport"),
+        "ola": ("Ola", "Transport"),
+        "uber": ("Uber", "Transport"),
+    }
+    for key, (service_name, category) in name_merchant_map.items():
+        if key in name_lower:
+            result["merchant"] = service_name
+            result["category"] = category
+            result["sub_type"] = "merchant"
+            return result
+
+    clean_name = name_raw.title().strip()
+    if direction == "CR":
+        result["merchant"] = f"Received from {clean_name}"
+        result["category"] = "Income"
+        result["sub_type"] = "p2p_received"
+    else:
+        result["merchant"] = f"Sent to {clean_name}"
+        result["category"] = "Transfer"
+        result["sub_type"] = "p2p_sent"
+
+    return result
+
+def _parse_union_bank_pdf_text(all_text: str) -> List[Dict]:
+    transactions = []
+    lines = all_text.split('\n')
+    cleaned_lines = []
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        if i + 1 < len(lines):
+            next_line = lines[i + 1].strip()
+            if (line.startswith("UPIAB") or line.startswith("UPIAR")) and not next_line[0].isdigit() and len(next_line) > 0:
+                line = line + next_line
+                i += 1
+        cleaned_lines.append(line)
+        i += 1
+
+    date_pattern = re.compile(r"^(\d{2}-\d{2}-\d{4})")
+    amount_pattern = re.compile(r"([\d,]+\.\d{2})")
+
+    for line in cleaned_lines:
+        date_match = date_pattern.match(line)
+        if not date_match:
+            continue
+        date_str = date_match.group(1)
+        amounts = amount_pattern.findall(line)
+        if not amounts:
+            continue
+        first_amount_pos = line.find(amounts[0])
+        particulars = line[len(date_str):first_amount_pos].strip()
+        is_credit = (
+            "BY CASH" in particulars.upper() or
+            "/CR/" in particulars.upper() or
+            "UPIAB" in particulars.upper()
+        )
+        amount = float(amounts[0].replace(",", ""))
+        decoded = _parse_union_bank_upi(particulars)
+        transactions.append({
+            "date": date_str,
+            "raw_description": particulars,
+            "merchant": decoded["merchant"],
+            "category": decoded["category"],
+            "sub_type": decoded.get("sub_type"),
+            "amount": amount,
+            "type": "credit" if is_credit else "debit",
+            "source": "union_bank",
+        })
+    return transactions
 
 # ─────────────────────────────────────────────────────────────────────────────
-# EVERYTHING BELOW IS YOUR ORIGINAL CODE — UNCHANGED
+# ⑤ GENERIC BANK PARSER (CSV, tables, multiline, line‑based)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def detect_bank(columns: list[str]) -> str:
+def detect_bank(columns: List[str]) -> str:
     normalized = [_normalize_col_name(c) for c in columns]
     best_bank = "GENERIC"
     best_score = 0
     for bank, hints in BANK_COLUMN_MAPS.items():
-        date_col  = _find_column(columns, hints["date"], normalized)
-        desc_col  = _find_column(columns, hints["description"], normalized)
+        date_col = _find_column(columns, hints["date"], normalized)
+        desc_col = _find_column(columns, hints["description"], normalized)
         debit_col = _find_column(columns, hints["debit"], normalized, allow_type_column=False)
-        credit_col= _find_column(columns, hints["credit"], normalized, allow_type_column=False)
+        credit_col = _find_column(columns, hints["credit"], normalized, allow_type_column=False)
         if not date_col or not desc_col:
             continue
         if not debit_col and not credit_col:
@@ -504,22 +536,14 @@ def detect_bank(columns: list[str]) -> str:
             best_bank = bank
     return best_bank if best_score >= 3 else "GENERIC"
 
-
 def _normalize_col_name(name: str) -> str:
     return re.sub(r"\s+", " ", str(name).strip().lower().replace("_", " "))
-
 
 def _is_type_column(name: str) -> bool:
     lower = name.lower()
     return any(token in lower for token in ("dr/cr", "dr / cr", "debit/credit", "cr/dr", "type"))
 
-
-def _find_column(
-    columns: list[str],
-    keywords: list[str],
-    normalized: list[str] | None = None,
-    allow_type_column: bool = True,
-) -> str | None:
+def _find_column(columns: List[str], keywords: List[str], normalized: Optional[List[str]] = None, allow_type_column: bool = True) -> Optional[str]:
     normalized = normalized or [_normalize_col_name(c) for c in columns]
     for col, col_norm in zip(columns, normalized):
         if not allow_type_column and _is_type_column(col):
@@ -532,12 +556,11 @@ def _find_column(
                 return col
     return None
 
-
-def _build_column_map(columns: list[str], bank: str) -> dict[str, str | None]:
+def _build_column_map(columns: List[str], bank: str) -> Dict[str, Optional[str]]:
     hints = BANK_COLUMN_MAPS.get(bank) if bank != "GENERIC" else None
     generic = GENERIC_COLUMN_HINTS
 
-    def pick(key: str, bank_keywords: list[str] | None) -> str | None:
+    def pick(key: str, bank_keywords: Optional[List[str]]) -> Optional[str]:
         allow_type = key not in ("debit", "credit")
         if bank_keywords:
             found = _find_column(columns, bank_keywords, allow_type_column=allow_type)
@@ -545,13 +568,13 @@ def _build_column_map(columns: list[str], bank: str) -> dict[str, str | None]:
                 return found
         return _find_column(columns, generic[key], allow_type_column=allow_type)
 
-    col_map: dict[str, str | None] = {
-        "date":        pick("date",   hints["date"]        if hints else None),
+    col_map: Dict[str, Optional[str]] = {
+        "date": pick("date", hints["date"] if hints else None),
         "description": pick("description", hints["description"] if hints else None),
-        "debit":       pick("debit",  hints["debit"]       if hints else None),
-        "credit":      pick("credit", hints["credit"]      if hints else None),
-        "amount":      pick("amount", None),
-        "type":        _find_column(columns, generic["type"]),
+        "debit": pick("debit", hints["debit"] if hints else None),
+        "credit": pick("credit", hints["credit"] if hints else None),
+        "amount": pick("amount", None),
+        "type": _find_column(columns, generic["type"]),
     }
     if col_map["debit"] and col_map["debit"] == col_map["credit"]:
         col_map["debit"] = None
@@ -562,11 +585,9 @@ def _build_column_map(columns: list[str], bank: str) -> dict[str, str | None]:
             col_map[key] = None
     return col_map
 
-
 def _is_balance_column(name: str) -> bool:
     lower = name.lower()
     return "balance" in lower and "opening" not in lower
-
 
 def parse_amount(value) -> float:
     if value is None or pd.isna(value) or value == "" or value == "-":
@@ -582,7 +603,6 @@ def parse_amount(value) -> float:
         return abs(float(clean))
     except ValueError:
         return 0.0
-
 
 def parse_date(value: str) -> str:
     if value is None or (isinstance(value, float) and pd.isna(value)):
@@ -605,7 +625,6 @@ def parse_date(value: str) -> str:
         return parse_date(match.group(1))
     return text[:10] if len(text) >= 10 else datetime.today().strftime("%Y-%m-%d")
 
-
 def _read_csv_dataframe(file_bytes: bytes) -> pd.DataFrame:
     raw_text = None
     for encoding in ("utf-8-sig", "utf-8", "latin-1", "cp1252"):
@@ -618,7 +637,7 @@ def _read_csv_dataframe(file_bytes: bytes) -> pd.DataFrame:
         raise ValueError("Could not decode CSV file.")
 
     separators = [",", ";", "\t", "|"]
-    best_df: pd.DataFrame | None = None
+    best_df = None
     best_score = -1
 
     for sep in separators:
@@ -666,8 +685,7 @@ def _read_csv_dataframe(file_bytes: bytes) -> pd.DataFrame:
         return best_df
     raise ValueError("Could not parse CSV structure.")
 
-
-def _score_header_row(columns: list[str]) -> int:
+def _score_header_row(columns: List[str]) -> int:
     score = 0
     joined = " ".join(_normalize_col_name(c) for c in columns)
     if any(k in joined for k in ("date", "txn", "posting")):
@@ -678,14 +696,12 @@ def _score_header_row(columns: list[str]) -> int:
         score += 1
     return score
 
-
-def _row_value(row: pd.Series, column: str | None, default=0):
+def _row_value(row: pd.Series, column: Optional[str], default=0):
     if not column or column not in row.index:
         return default
     return row[column]
 
-
-def _infer_type_from_text(text: str) -> str | None:
+def _infer_type_from_text(text: str) -> Optional[str]:
     lower = text.lower().strip()
     if lower in {"dr", "debit", "d", "withdrawal", "paid"}:
         return "debit"
@@ -693,25 +709,24 @@ def _infer_type_from_text(text: str) -> str | None:
         return "credit"
     return None
 
-
-def parse_csv(file_bytes: bytes) -> list[dict]:
+def parse_csv(file_bytes: bytes) -> List[Dict]:
     df = _read_csv_dataframe(file_bytes)
     df = df.dropna(how="all")
     df.columns = [str(c).strip() for c in df.columns]
     bank = detect_bank(list(df.columns))
     col_map = _build_column_map(list(df.columns), bank)
-    transactions: list[dict] = []
+    transactions = []
 
     for _, row in df.iterrows():
         try:
             description = str(_row_value(row, col_map["description"], "")).strip()
             if description.lower() in {"nan", "none", ""}:
                 description = ""
-            date_raw   = _row_value(row, col_map["date"], "")
-            debit      = parse_amount(_row_value(row, col_map["debit"],   0))
-            credit     = parse_amount(_row_value(row, col_map["credit"],  0))
-            amount_col = parse_amount(_row_value(row, col_map["amount"],  0))
-            type_hint  = str(_row_value(row, col_map["type"], "")).strip()
+            date_raw = _row_value(row, col_map["date"], "")
+            debit = parse_amount(_row_value(row, col_map["debit"], 0))
+            credit = parse_amount(_row_value(row, col_map["credit"], 0))
+            amount_col = parse_amount(_row_value(row, col_map["amount"], 0))
+            type_hint = str(_row_value(row, col_map["type"], "")).strip()
 
             amount = 0.0
             txn_type = "debit"
@@ -738,21 +753,18 @@ def parse_csv(file_bytes: bytes) -> list[dict]:
                 continue
 
             transactions.append({
-                "date":            parse_date(date_raw),
+                "date": parse_date(date_raw),
                 "raw_description": description,
-                "merchant":        extract_merchant_name(description),
-                "amount":          amount,
-                "type":            txn_type,
+                "merchant": extract_merchant_name(description),
+                "amount": amount,
+                "type": txn_type,
             })
         except Exception:
             continue
-
     return transactions
-
 
 def _is_date_line(line: str) -> bool:
     return bool(DATE_LINE_PATTERN.match(line) or DATE_LINE_PATTERN_SLASH.match(line))
-
 
 def _is_skip_line(line: str) -> bool:
     lower = line.lower().strip()
@@ -762,32 +774,28 @@ def _is_skip_line(line: str) -> bool:
         return True
     return any(key in lower for key in SKIP_LINE_KEYWORDS)
 
-
 def _normalize_statement_table(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return df
     columns = [str(c).strip() for c in df.columns]
     has_date_header = any("date" in _normalize_col_name(c) for c in columns)
     if not has_date_header and len(columns) >= 4:
-        first_cell  = str(df.iloc[0, 0]).strip() if len(df) else ""
+        first_cell = str(df.iloc[0, 0]).strip() if len(df) else ""
         second_cell = str(df.iloc[0, 1]).strip() if len(df.columns) > 1 else ""
         if SR_NO_LINE_PATTERN.match(first_cell) or _is_date_line(second_cell):
             count = min(len(columns), len(STATEMENT_TABLE_HEADERS))
             df = df.copy()
-            df.columns = STATEMENT_TABLE_HEADERS[:count] + [
-                f"Col{i}" for i in range(count, len(columns))
-            ]
+            df.columns = STATEMENT_TABLE_HEADERS[:count] + [f"Col{i}" for i in range(count, len(columns))]
     return df
 
-
-def _table_rows_to_transactions(df: pd.DataFrame) -> list[dict]:
+def _table_rows_to_transactions(df: pd.DataFrame) -> List[Dict]:
     df = _normalize_statement_table(df)
     if df.empty or len(df.columns) < 2:
         return []
     df.columns = [str(c).strip() for c in df.columns]
-    bank    = detect_bank(list(df.columns))
+    bank = detect_bank(list(df.columns))
     col_map = _build_column_map(list(df.columns), bank)
-    transactions: list[dict] = []
+    transactions = []
 
     for _, row in df.iterrows():
         description = str(_row_value(row, col_map["description"], "")).strip()
@@ -797,9 +805,9 @@ def _table_rows_to_transactions(df: pd.DataFrame) -> list[dict]:
         date_raw = str(_row_value(row, col_map["date"], "")).strip()
         if not _is_date_line(date_raw) and not DATE_PATTERN.search(date_raw):
             continue
-        debit      = parse_amount(_row_value(row, col_map["debit"],   0))
-        credit     = parse_amount(_row_value(row, col_map["credit"],  0))
-        amount_col = parse_amount(_row_value(row, col_map["amount"],  0))
+        debit = parse_amount(_row_value(row, col_map["debit"], 0))
+        credit = parse_amount(_row_value(row, col_map["credit"], 0))
+        amount_col = parse_amount(_row_value(row, col_map["amount"], 0))
         if not description and debit == 0 and credit == 0 and amount_col == 0:
             continue
         if debit > 0:
@@ -816,17 +824,16 @@ def _table_rows_to_transactions(df: pd.DataFrame) -> list[dict]:
         if description.lower() in {"remarks", "narration", "description"}:
             continue
         transactions.append({
-            "date":            parse_date(date_raw),
+            "date": parse_date(date_raw),
             "raw_description": description or "PDF transaction",
-            "merchant":        extract_merchant_name(description or "PDF transaction"),
-            "amount":          amount,
-            "type":            txn_type,
+            "merchant": extract_merchant_name(description or "PDF transaction"),
+            "amount": amount,
+            "type": txn_type,
         })
     return transactions
 
-
-def _parse_pdf_tables(doc: fitz.Document) -> list[dict]:
-    transactions: list[dict] = []
+def _parse_pdf_tables(doc: fitz.Document) -> List[Dict]:
+    transactions = []
     for page in doc:
         try:
             tables = page.find_tables()
@@ -842,7 +849,6 @@ def _parse_pdf_tables(doc: fitz.Document) -> list[dict]:
             transactions.extend(_table_rows_to_transactions(df))
     return transactions
 
-
 def _infer_type_from_description(description: str, saw_blank_before_amount: bool = False) -> str:
     upper = description.upper()
     if "/DR/" in upper or re.search(r"\bDR\b", upper):
@@ -855,10 +861,9 @@ def _infer_type_from_description(description: str, saw_blank_before_amount: bool
         return "credit"
     return "debit"
 
-
-def _parse_pdf_indian_multiline(all_text: str) -> list[dict]:
+def _parse_pdf_indian_multiline(all_text: str) -> List[Dict]:
     lines = [line.strip() for line in all_text.splitlines()]
-    transactions: list[dict] = []
+    transactions = []
     i = 0
     while i < len(lines):
         line = lines[i].strip()
@@ -873,8 +878,8 @@ def _parse_pdf_indian_multiline(all_text: str) -> list[dict]:
         if not _is_date_line(line):
             continue
         date_str = line
-        remarks: list[str] = []
-        amounts: list[float] = []
+        remarks = []
+        amounts = []
         saw_blank_before_amount = False
         saw_content = False
         while i < len(lines):
@@ -938,17 +943,16 @@ def _parse_pdf_indian_multiline(all_text: str) -> list[dict]:
         if amount <= 0:
             continue
         transactions.append({
-            "date":            parse_date(date_str),
+            "date": parse_date(date_str),
             "raw_description": description or "PDF transaction",
-            "merchant":        extract_merchant_name(description or "PDF transaction"),
-            "amount":          amount,
-            "type":            txn_type,
+            "merchant": extract_merchant_name(description or "PDF transaction"),
+            "amount": amount,
+            "type": txn_type,
         })
     return transactions
 
-
-def _parse_pdf_lines(all_text: str) -> list[dict]:
-    transactions: list[dict] = []
+def _parse_pdf_lines(all_text: str) -> List[Dict]:
+    transactions = []
     patterns = [
         re.compile(
             r"(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}|\d{1,2}[-\s][A-Za-z]{3}[-\s]\d{2,4})"
@@ -979,11 +983,11 @@ def _parse_pdf_lines(all_text: str) -> list[dict]:
             if amount <= 0 or len(description) < 2:
                 continue
             transactions.append({
-                "date":            parse_date(date_str),
+                "date": parse_date(date_str),
                 "raw_description": description,
-                "merchant":        extract_merchant_name(description),
-                "amount":          amount,
-                "type":            "debit",
+                "merchant": extract_merchant_name(description),
+                "amount": amount,
+                "type": "debit",
             })
             break
     if not transactions:
@@ -992,11 +996,7 @@ def _parse_pdf_lines(all_text: str) -> list[dict]:
             date_match = DATE_PATTERN.search(line)
             if not date_match:
                 continue
-            amounts = [
-                parse_amount(match.group())
-                for match in AMOUNT_PATTERN.finditer(line)
-                if parse_amount(match.group()) > 0
-            ]
+            amounts = [parse_amount(match.group()) for match in AMOUNT_PATTERN.finditer(line) if parse_amount(match.group()) > 0]
             if not amounts:
                 continue
             date_str = date_match.group(1)
@@ -1009,18 +1009,17 @@ def _parse_pdf_lines(all_text: str) -> list[dict]:
                 description = "PDF transaction"
             amount = amounts[0] if len(amounts) == 1 else amounts[-2] if len(amounts) >= 2 else amounts[0]
             transactions.append({
-                "date":            parse_date(date_str),
+                "date": parse_date(date_str),
                 "raw_description": description,
-                "merchant":        extract_merchant_name(description),
-                "amount":          amount,
-                "type":            "debit",
+                "merchant": extract_merchant_name(description),
+                "amount": amount,
+                "type": "debit",
             })
     return transactions
 
-
-def _dedupe_transactions(transactions: list[dict]) -> list[dict]:
-    seen: set[tuple] = set()
-    unique: list[dict] = []
+def _dedupe_transactions(transactions: List[Dict]) -> List[Dict]:
+    seen = set()
+    unique = []
     for txn in transactions:
         key = (
             txn.get("date"),
@@ -1034,61 +1033,8 @@ def _dedupe_transactions(transactions: list[dict]) -> list[dict]:
         unique.append(txn)
     return unique
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# ④ MAIN ENTRY POINT — updated to route GPay / PhonePe / bank PDFs
-# ─────────────────────────────────────────────────────────────────────────────
-
-def parse_pdf(file_bytes: bytes) -> list[dict]:
-    """
-    Auto-detect PDF source and route to the right parser.
-
-    Priority:
-      1. Google Pay statement  → _parse_gpay_pdf()
-      2. PhonePe statement     → _parse_phonepe_pdf()
-      3. Bank statement (table)→ _parse_pdf_tables()
-      4. Indian multiline layout → _parse_pdf_indian_multiline()
-      5. Generic line fallback → _parse_pdf_lines()
-    """
-    doc = fitz.open(stream=file_bytes, filetype="pdf")
-    first_page_text = doc[0].get_text() if len(doc) > 0 else ""
-    doc.close()
-
-    source = _detect_pdf_source(first_page_text)
-
-    if source == "GPAY":
-        transactions = _parse_gpay_pdf(file_bytes)
-        if transactions:
-            return _dedupe_transactions(transactions)
-
-    if source == "PHONEPE":
-        transactions = _parse_phonepe_pdf(file_bytes)
-        if transactions:
-            return _dedupe_transactions(transactions)
-
-    # Bank statement path (original logic)
-    doc = fitz.open(stream=file_bytes, filetype="pdf")
-    all_text = "".join(page.get_text("text") + "\n" for page in doc)
-
-    table_txns      = _parse_pdf_tables(doc)
-    multiline_txns  = _parse_pdf_indian_multiline(all_text)
-    line_txns       = _parse_pdf_lines(all_text) if not multiline_txns else []
-    doc.close()
-
-    candidates = [
-        _dedupe_transactions(multiline_txns),
-        _dedupe_transactions(table_txns),
-        _dedupe_transactions(line_txns),
-    ]
-    candidates.sort(key=len, reverse=True)
-    return candidates[0]
-
-
 def extract_merchant_name(description: str) -> str:
-    """Clean UPI/NEFT/IMPS prefixes to get human-readable merchant name."""
-    upi_match = re.search(
-        r"UPI/\d+/(DR|CR)/([^/\n]+)", description, flags=re.IGNORECASE
-    )
+    upi_match = re.search(r"UPI/\d+/(DR|CR)/([^/\n]+)", description, flags=re.IGNORECASE)
     if upi_match:
         return upi_match.group(2).strip().title()[:40]
     imps_match = re.search(r"IMPS/\d+/(.+)", description, flags=re.IGNORECASE)
@@ -1106,3 +1052,89 @@ def extract_merchant_name(description: str) -> str:
     clean = parts[0].strip().title() if parts else merchant
     clean = re.sub(r"\s+\d{6,}$", "", clean).strip()
     return clean or description[:40]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ⑥ MAIN ENTRY POINT (merged from CODE 1 and CODE 2)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def parse_pdf(file_bytes: bytes) -> List[Dict]:
+    """
+    Auto-detect PDF source and route to the right parser.
+    Supports: Google Pay, PhonePe, Union Bank, HDFC, SBI, ICICI, and generic banks.
+    """
+    doc = fitz.open(stream=file_bytes, filetype="pdf")
+    first_page_text = doc[0].get_text() if len(doc) > 0 else ""
+    doc.close()
+
+    source = _detect_pdf_source(first_page_text)
+
+    # Specific known parsers
+    if source == "GPAY":
+        transactions = _parse_gpay_pdf(file_bytes)
+        if transactions:
+            return _dedupe_transactions(transactions)
+
+    if source == "PHONEPE":
+        transactions = _parse_phonepe_pdf(file_bytes)
+        if transactions:
+            return _dedupe_transactions(transactions)
+
+    if source == "UNION":
+        doc = fitz.open(stream=file_bytes, filetype="pdf")
+        all_text = "".join(page.get_text("text") for page in doc)
+        doc.close()
+        transactions = _parse_union_bank_pdf_text(all_text)
+        if transactions:
+            return _dedupe_transactions(transactions)
+
+    # For HDFC, SBI, ICICI and other generic banks,
+    # use the generic PDF table/multiline parser (which handles most tabular statements)
+    doc = fitz.open(stream=file_bytes, filetype="pdf")
+    all_text = "".join(page.get_text("text") + "\n" for page in doc)
+
+    table_txns = _parse_pdf_tables(doc)
+    multiline_txns = _parse_pdf_indian_multiline(all_text)
+    line_txns = _parse_pdf_lines(all_text) if not multiline_txns else []
+    doc.close()
+
+    candidates = [
+        _dedupe_transactions(multiline_txns),
+        _dedupe_transactions(table_txns),
+        _dedupe_transactions(line_txns),
+    ]
+    candidates.sort(key=len, reverse=True)
+    return candidates[0]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ⑦ DUMMY TEST (creates a minimal PDF and runs the parser)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _create_dummy_pdf() -> bytes:
+    """Create a small PDF with some dummy bank statement text."""
+    doc = fitz.open()
+    page = doc.new_page()
+    text = """HDFC Bank Account Statement
+Date       Description                Debit      Credit
+01/04/2026 Amazon Purchase           500.00     -
+02/04/2026 Salary Credit             -          25000.00
+03/04/2026 UPI/123/DR/Flipkart      1500.00    -
+"""
+    page.insert_text((50, 100), text, fontsize=10)
+    return doc.tobytes()
+
+def dummy_test():
+    """Dummy test to verify the parser does not crash on a simple PDF."""
+    print("Running dummy test...")
+    pdf_bytes = _create_dummy_pdf()
+    try:
+        transactions = parse_pdf(pdf_bytes)
+        print(f"Successfully parsed {len(transactions)} transactions.")
+        for txn in transactions[:3]:
+            print(txn)
+        print("Dummy test passed.")
+    except Exception as e:
+        print(f"Dummy test failed: {e}")
+        raise
+
+if __name__ == "__main__":
+    dummy_test()

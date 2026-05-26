@@ -31,7 +31,7 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="Finance Tracker ML Engine", lifespan=lifespan)
+app = FastAPI(title="HisaabFlow ML Engine", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

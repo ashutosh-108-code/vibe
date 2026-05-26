@@ -1,199 +1,196 @@
 # Finance Tracker — ML-Powered Indian Expense Tracker
 
-Finance Tracker is an ML-powered expense tracking application tailored for Indian bank statements (PDF/CSV) and high-frequency UPI transaction habits. It parses bank statements, automatically categorizes transactions using a hybrid rule-based and scikit-learn machine learning classifier, runs anomaly detection on unusual expenditures, and provides plain-language visual summaries and bilingual (English/Hindi) insights.
+Finance Tracker parses Indian bank and UPI statements (CSV/PDF), categorizes transactions with a hybrid rule-based + scikit-learn model, and shows charts and bilingual insights on a Next.js dashboard.
+
+**Stack:** Next.js 14 (Vercel) · FastAPI (Railway) · PostgreSQL (Supabase)
 
 ---
 
-## 🚀 Features
+## Local development
 
-- **Automated Statement Parsing**: Direct ingestion of CSV and PDF bank statements (supported banks include HDFC, SBI, ICICI, AXIS, KOTAK, IDFC).
-- **Hybrid Categorization**: Multi-layered classifier combining regex keyword matching with a trained scikit-learn Naive Bayes (`MultinomialNB`) classifier.
-- **Anomaly Detection**: Uses scikit-learn's `IsolationForest` to flag unusual transaction spikes per category.
-- **Plain-Language Insights**: Bilingual insights toggleable between English and Hindi.
-- **Interactive Dashboard**: Recharts-powered donut and daily transaction spending charts.
-- **Transaction Table**: Filter, search, and manually update categories on the fly.
-- **Demo Mode**: Seeded mock data to instantly explore all pages and charts.
+### Prerequisites
 
----
+- Python 3.11+
+- Node.js 18+
+- (Optional) Supabase account for a remote database; without `DATABASE_URL`, the backend uses `ml-engine/local.db` (SQLite).
 
-## 🛠️ Tech Stack
+### 1. Environment files
 
-### Frontend
-- **Framework**: Next.js 14 (App Router)
-- **Styling**: Tailwind CSS
-- **Charts**: Recharts
-- **Icons**: Lucide React
-- **HTTP Client**: Axios
-
-### Backend
-- **Framework**: FastAPI (Python 3.11+)
-- **Database**: PostgreSQL (via Supabase)
-- **ORM**: SQLAlchemy 2 (Async) + Alembic
-- **Machine Learning**: scikit-learn (`MultinomialNB`, `TfidfVectorizer`, `IsolationForest`)
-- **PDF Ingestion**: PyMuPDF (`fitz`)
-- **CSV Ingestion**: pandas
-
----
-
-## 💻 Local Development Setup
-
-### Prerequisite Environment Configuration
-
-Copy `.env.example` to `.env` (or configure system env variables):
-
-**macOS / Linux / Git Bash:**
-```bash
-cp .env.example .env
-```
-
-**Windows PowerShell (VS Code terminal):**
 ```powershell
 Copy-Item .env.example .env
+Copy-Item frontend\.env.local.example frontend\.env.local
 ```
 
-> **Note:** PowerShell does not support `&&` to chain commands. Run each command on its own line, or use `;` between commands (e.g. `cd ml-engine; python -m uvicorn main:app --reload --port 8000`).
+Edit `.env` with your Supabase `DATABASE_URL` if you use PostgreSQL. For local-only testing, you can leave `DATABASE_URL` empty.
 
-### Quick start (two terminals)
+### 2. Backend (port 8000)
 
-**Terminal 1 — backend (PowerShell):**
 ```powershell
 cd ml-engine
-python -m uvicorn main:app --reload --port 8000
-```
-
-**Terminal 2 — frontend (PowerShell):**
-```powershell
-cd frontend
-npm.cmd run dev
-```
-
-If `npm` fails with *running scripts is disabled*, use `npm.cmd` (above) or run once:
-```powershell
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-```
-
-Then open [http://localhost:3000/upload](http://localhost:3000/upload) and click **Load Demo**.
-
-### 1. Backend Service Setup (Port 8000)
-
-Navigate to the `ml-engine` directory:
-```powershell
-cd ml-engine
-```
-
-Create a Python virtual environment and activate it:
-```bash
 python -m venv venv
-# On Windows (Command Prompt)
-venv\Scripts\activate
-# On macOS/Linux
-source venv/bin/activate
-```
-
-Install the dependencies:
-```bash
+.\venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-Run Alembic migrations to construct the database schema (ensure `DATABASE_URL` is configured in your `.env`):
-```bash
+With Supabase configured:
+
+```powershell
 alembic upgrade head
 ```
 
-Run the backend server (use `python -m` so it works even when `uvicorn` is not on PATH):
+Start the API:
+
 ```powershell
 python -m uvicorn main:app --reload --port 8000
 ```
-API Documentation will be available at [http://localhost:8000/docs](http://localhost:8000/docs).
 
-Without a `DATABASE_URL` in `.env`, the backend uses a local SQLite file at `ml-engine/local.db` automatically.
+Docs: [http://localhost:8000/docs](http://localhost:8000/docs)
 
-**Supported PDF layouts:** HDFC/SBI-style tables, plus **Bank of India** / UPI statements where each field (Date, Remarks, Debit, Credit) is on separate lines. Restart the backend after parser updates.
+### 3. Frontend (port 3000)
 
-**Troubleshooting: `[WinError 10013]` on port 8000**
-
-Usually another process is already using port 8000 (often a previous `uvicorn` you did not stop).
-
-```powershell
-# See what is using port 8000
-netstat -ano | findstr ":8000"
-
-# Stop it (replace 12345 with the PID from the last column)
-Stop-Process -Id 12345 -Force
-```
-
-Then start the backend again. Or use another port:
-
-```powershell
-python -m uvicorn main:app --reload --port 8001
-```
-
-If you use port 8001, set `NEXT_PUBLIC_API_URL=http://localhost:8001` in `frontend/.env.local`.
-
-### 2. Frontend Application Setup (Port 3000)
-
-Navigate to the `frontend` directory:
 ```powershell
 cd frontend
-```
-
-Install npm packages:
-```bash
-npm install
-```
-
-Configure `frontend/.env.local` (optional for local dev):
-
-```powershell
-Copy-Item .env.local.example .env.local
-```
-
-For **local development**, leave `NEXT_PUBLIC_API_URL` **unset**. Next.js proxies `/api` to the backend automatically (no CORS issues).
-
-Only set `NEXT_PUBLIC_API_URL` in production (your Railway URL).
-
-Start the development server:
-```powershell
+npm.cmd install
 npm.cmd run dev
 ```
 
-**Troubleshooting: `npm.ps1 cannot be loaded` / execution policy**
+Open [http://localhost:3000/upload](http://localhost:3000/upload).
 
-PowerShell may block `npm` scripts. Use either fix:
+**PowerShell notes**
 
-```powershell
-# Option A — no policy change (recommended quick fix)
-npm.cmd run dev
-
-# Option B — allow local scripts for your user only (one-time)
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-npm run dev
-```
-
-In VS Code you can also open a **Command Prompt** terminal (not PowerShell): `Terminal → New Terminal →` pick **Command Prompt**, then `npm run dev`.
-
-Open [http://localhost:3000](http://localhost:3000) in your browser.
+- Use `;` instead of `&&` between commands.
+- If `npm` is blocked, use `npm.cmd` or run `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser` once.
+- Leave `NEXT_PUBLIC_API_URL` unset in `frontend/.env.local` so `/api` is proxied to the backend (see `frontend/next.config.js`).
 
 ---
 
-## 🏗️ Deployment Guide
+## Production deployment
 
-### Database (Supabase)
-1. Set up a free-tier PostgreSQL instance at [Supabase](https://supabase.com).
-2. Execute the initialization SQL script inside Supabase's SQL Editor to set up tables (`statements`, `categories`, `transactions`, `insights`).
-3. Set your project's transaction connection string as the `DATABASE_URL`.
+Deploy in this order: **Supabase → Railway (backend) → Vercel (frontend)**.
 
-### Backend (Railway)
-1. Deploy the `/ml-engine` directory onto Railway.
-2. Railway will auto-detect the `Dockerfile` inside `ml-engine/`.
-3. Set the required backend environment variables in Railway:
-   - `DATABASE_URL`
-   - `SECRET_KEY`
-   - `DEBUG=False`
-   - `ALLOWED_ORIGINS=https://your-frontend.vercel.app`
+### Step 1 — Supabase (database)
 
-### Frontend (Vercel)
-1. Deploy the `/frontend` directory onto Vercel.
-2. Vercel will auto-detect the configuration using the standard setup and the `vercel.json` wrapper.
-3. Configure the environment variable:
-   - `NEXT_PUBLIC_API_URL=https://your-backend.railway.app`
+1. Create a project at [https://supabase.com](https://supabase.com).
+2. Open **Project Settings → Database → Connection string → URI**.
+3. Copy the URI (transaction pooler `6543` or direct `5432`). Example shape:
+   ```text
+   postgresql://postgres.[ref]:[PASSWORD]@aws-0-[region].pooler.supabase.com:6543/postgres
+   ```
+4. Open **SQL Editor** and run the schema from `documentation.md` **Section 8.1** (tables: `statements`, `categories`, `transactions`, `insights`), **or** run migrations from your machine:
+
+   ```powershell
+   cd ml-engine
+   # Set DATABASE_URL in .env to the Supabase URI, then:
+   alembic upgrade head
+   ```
+
+5. Save the connection string — you will use it as `DATABASE_URL` on Railway.
+
+### Step 2 — Railway (backend)
+
+1. Push this repo to GitHub.
+2. Go to [https://railway.app](https://railway.app) → **New Project** → **Deploy from GitHub repo**.
+3. Add a service for this repository.
+4. Set **Root Directory** to `ml-engine` (Settings → Build).
+5. Railway detects `ml-engine/Dockerfile` and builds the image.
+6. Add a **public domain** (Settings → Networking → Generate domain).
+7. Set **Variables**:
+
+   | Variable | Value |
+   |----------|--------|
+   | `DATABASE_URL` | Supabase PostgreSQL URI from Step 1 |
+   | `SECRET_KEY` | Random 32+ character string |
+   | `DEBUG` | `False` |
+   | `ALLOWED_ORIGINS` | `https://YOUR-APP.vercel.app` (set after Vercel deploy; add `http://localhost:3000` for local testing) |
+   | `MODEL_PATH` | `./models/categorizer.pkl` |
+   | `MAX_FILE_SIZE_MB` | `10` |
+
+8. Deploy and confirm health: `https://YOUR-RAILWAY-DOMAIN.up.railway.app/health`  
+   Expected: `{"status":"ok","model_loaded":true,"db_connected":true}`
+
+### Step 3 — Vercel (frontend)
+
+1. Go to [https://vercel.com](https://vercel.com) → **Add New Project** → import the same GitHub repo.
+2. Set **Root Directory** to `frontend`.
+3. Framework preset: **Next.js** (auto-detected).
+4. Set **Environment Variables** (Production):
+
+   | Variable | Value |
+   |----------|--------|
+   | `NEXT_PUBLIC_API_URL` | `https://YOUR-RAILWAY-DOMAIN.up.railway.app` (no trailing slash) |
+   | `NEXT_PUBLIC_APP_NAME` | `Finance Tracker` |
+
+5. Click **Deploy**.
+6. Copy your Vercel URL (e.g. `https://finance-tracker-xyz.vercel.app`).
+7. Return to Railway → update `ALLOWED_ORIGINS` to include that exact URL (comma-separated if multiple).
+8. Redeploy the Railway service if you changed `ALLOWED_ORIGINS`.
+
+### Step 4 — Smoke test
+
+1. Open `https://YOUR-APP.vercel.app/upload`
+2. Click **Load Demo** or upload a CSV/PDF.
+3. Confirm **Dashboard** and **Insights** load.
+
+---
+
+## Environment variables reference
+
+See [.env.example](.env.example) for the full list.
+
+| Variable | Where | Purpose |
+|----------|--------|---------|
+| `DATABASE_URL` | Railway | Supabase PostgreSQL connection |
+| `SECRET_KEY` | Railway | App secret (reserved for future use) |
+| `DEBUG` | Railway | `False` in production |
+| `ALLOWED_ORIGINS` | Railway | Comma-separated frontend URLs for CORS |
+| `MODEL_PATH` | Railway | Path to trained categorizer pickle |
+| `MAX_FILE_SIZE_MB` | Railway | Upload size limit |
+| `NEXT_PUBLIC_API_URL` | Vercel | Public Railway API base URL |
+| `NEXT_PUBLIC_APP_NAME` | Vercel | Display name |
+| `API_PROXY_URL` | Local only | Backend URL for Next.js rewrites in dev |
+
+---
+
+## Project layout
+
+```text
+finance-tracker/
+├── Agents.txt              # Agent rules (same as AGENTS.md spec)
+├── .env.example
+├── README.md
+├── frontend/               # Next.js 14 → deploy to Vercel
+│   ├── next.config.js      # API rewrites for local dev
+│   └── vercel.json
+└── ml-engine/              # FastAPI → deploy to Railway
+    ├── Dockerfile
+    ├── requirements.txt
+    └── main.py
+```
+
+---
+
+## Build verification
+
+```powershell
+cd frontend
+npm.cmd run build
+```
+
+Production build must complete with no errors before deploying to Vercel.
+
+---
+
+## Troubleshooting
+
+| Issue | Fix |
+|-------|-----|
+| `[WinError 10013]` on port 8000 | Another process is using the port; `netstat -ano \| findstr ":8000"` then `Stop-Process -Id <PID> -Force` |
+| `npm.ps1 cannot be loaded` | Use `npm.cmd` or adjust PowerShell execution policy |
+| CORS / network error on upload | Set `ALLOWED_ORIGINS` on Railway to your Vercel URL; on Vercel set `NEXT_PUBLIC_API_URL` to Railway URL |
+| Empty dashboard after upload | Restart backend after parser changes; ensure `DATABASE_URL` is valid |
+
+---
+
+## License
+
+MIT (hackathon / educational use).

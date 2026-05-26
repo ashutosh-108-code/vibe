@@ -1,11 +1,24 @@
-fastapi
-uvicorn[standard]
-SQLAlchemy
-alembic
-pandas
-scikit-learn
-PyMuPDF
-python-dotenv
-psycopg[binary]
-aiosqlite
-python-multipart
+# Finance Tracker — ml-engine (FastAPI + ML)
+# Python 3.11+
+
+# API server
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+python-multipart==0.0.9
+python-dotenv==1.0.1
+
+# Database
+SQLAlchemy==2.0.30
+alembic==1.13.1
+psycopg[binary]==3.1.18
+psycopg2-binary==2.9.9
+asyncpg==0.29.0
+aiosqlite==0.20.0
+
+# ML & data
+pandas==2.2.2
+scikit-learn==1.4.2
+numpy>=1.26,<3
+
+# PDF / CSV parsing
+PyMuPDF==1.24.0

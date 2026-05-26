@@ -131,51 +131,57 @@ function DashboardContent() {
       {/* Summary Cards */}
       <div className="mb-8 grid gap-5 sm:grid-cols-3">
         {/* Total Debit */}
-        <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm hover:-translate-y-1 hover:shadow-md transition-all duration-300">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-slate-600">Total Spent</span>
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-red-50 text-[#EF4444]">
+            <span className="text-sm font-semibold text-slate-500">Total Spent</span>
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-red-50 text-[#EF4444] border border-red-100/60">
               <ArrowUpRight className="h-5 w-5" />
             </div>
           </div>
           <div className="mt-4">
-            <h2 className="text-2xl font-bold text-slate-900">
+            <h2 className="text-2xl font-bold text-slate-900 tracking-tight">
               {formatINR(stats?.total_debit || 0)}
             </h2>
-            <p className="mt-1 text-xs text-slate-500">Outflow across statement</p>
+            <p className="mt-1 text-xs text-slate-500 font-medium">Outflow across statement</p>
           </div>
         </div>
 
         {/* Total Credit */}
-        <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm hover:-translate-y-1 hover:shadow-md transition-all duration-300">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-slate-600">Total Received</span>
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-50 text-[#10B981]">
+            <span className="text-sm font-semibold text-slate-500">Total Received</span>
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-50 text-[#10B981] border border-emerald-100/60">
               <ArrowDownRight className="h-5 w-5" />
             </div>
           </div>
           <div className="mt-4">
-            <h2 className="text-2xl font-bold text-slate-900">
+            <h2 className="text-2xl font-bold text-slate-900 tracking-tight">
               {formatINR(stats?.total_credit || 0)}
             </h2>
-            <p className="mt-1 text-xs text-slate-500">Inflow across statement</p>
+            <p className="mt-1 text-xs text-slate-500 font-medium">Inflow across statement</p>
           </div>
         </div>
 
         {/* Net Savings */}
-        <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+        <div className={[
+          "rounded-lg border p-6 shadow-sm hover:-translate-y-1 hover:shadow-md transition-all duration-300 bg-white",
+          (stats?.net_savings || 0) >= 0 ? "border-emerald-200 bg-emerald-50/10" : "border-red-200 bg-red-50/10"
+        ].join(" ")}>
           <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-slate-600">Net Savings</span>
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-violet-50 text-[#8B5CF6]">
+            <span className="text-sm font-semibold text-slate-500">Net Savings</span>
+            <div className={[
+              "flex h-10 w-10 items-center justify-center rounded-lg border",
+              (stats?.net_savings || 0) >= 0 ? "bg-emerald-50 text-[#10B981] border-emerald-100" : "bg-red-50 text-[#EF4444] border-red-100"
+            ].join(" ")}>
               <Wallet className="h-5 w-5" />
             </div>
           </div>
           <div className="mt-4">
-            <h2 className={`text-2xl font-bold ${stats?.net_savings >= 0 ? "text-emerald-700" : "text-red-700"}`}>
+            <h2 className={`text-2xl font-bold tracking-tight ${(stats?.net_savings || 0) >= 0 ? "text-emerald-700" : "text-red-700"}`}>
               {formatINR(stats?.net_savings || 0)}
             </h2>
-            <p className="mt-1 text-xs text-slate-505">
-              Savings Rate: <span className="font-semibold">{stats?.savings_rate || 0}%</span>
+            <p className="mt-1 text-xs text-slate-500 font-medium">
+              Savings Rate: <span className="font-semibold text-slate-700">{stats?.savings_rate || 0}%</span>
             </p>
           </div>
         </div>

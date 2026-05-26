@@ -31,10 +31,10 @@ function NavLinks() {
             key={href}
             href={targetHref}
             className={[
-              "flex h-10 items-center gap-2 rounded-lg px-3.5 text-sm font-medium transition-colors",
+              "flex h-9 items-center gap-2 rounded-lg px-3.5 text-sm font-medium transition-all duration-200 active:scale-[0.98]",
               isActive
-                ? "bg-white/15 text-white"
-                : "text-slate-300 hover:bg-white/5 hover:text-white"
+                ? "bg-slate-800 text-emerald-400 border border-slate-700/50 shadow-sm"
+                : "text-slate-300 border border-transparent hover:bg-slate-800/50 hover:text-white"
             ].join(" ")}
           >
             <Icon className="h-4 w-4" aria-hidden />
@@ -50,9 +50,9 @@ export function Navbar() {
   return (
     <header className="border-b border-slate-800 bg-[#1E293B] text-white shadow-sm">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
-        <Link href="/dashboard" className="flex items-center gap-2 text-lg font-bold tracking-tight hover:opacity-90 transition-opacity">
-          <span className="bg-emerald-500 text-slate-900 rounded-md p-1.5 text-xs font-black leading-none">FT</span>
-          <span>Finance Tracker</span>
+        <Link href="/dashboard" className="flex items-center gap-2.5 text-lg font-bold tracking-tight hover:opacity-95 transition-opacity">
+          <span className="bg-emerald-500 text-slate-950 rounded-md px-2 py-1 text-xs font-black leading-none tracking-wider">HF</span>
+          <span className="font-semibold text-slate-100">HisaabFlow</span>
         </Link>
         
         <Suspense fallback={<div className="h-10 w-64 bg-white/5 rounded-lg animate-pulse" />}>

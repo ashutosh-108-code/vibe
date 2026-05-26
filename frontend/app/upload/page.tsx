@@ -132,11 +132,11 @@ export default function UploadPage() {
     <section className="mx-auto max-w-5xl px-6 py-10">
       <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-200 bg-[#1E293B] px-8 py-8 text-white">
-          <p className="text-sm font-medium uppercase tracking-[0.2em] text-emerald-200">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-400">
             Statement Upload
           </p>
-          <h1 className="mt-3 text-3xl font-semibold">Drop in a CSV or PDF and we will do the heavy lifting.</h1>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-200">
+          <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-100">Drop in a CSV or PDF and we will do the heavy lifting.</h1>
+          <p className="mt-3 max-w-2xl text-sm leading-relaxed text-slate-300">
             Upload a bank statement, let the ML pipeline classify each transaction, and jump
             straight into your dashboard.
           </p>
@@ -153,8 +153,8 @@ export default function UploadPage() {
             onDragLeave={() => setIsDragging(false)}
             onDrop={handleDrop}
             className={[
-              "rounded-lg border border-dashed p-8 transition-colors",
-              isDragging ? "border-[#10B981] bg-emerald-50" : "border-slate-300 bg-slate-50",
+              "rounded-lg border border-dashed p-8 transition-all duration-300",
+              isDragging ? "border-[#10B981] bg-emerald-50/50" : "border-slate-300 bg-slate-50/50 hover:border-slate-450 hover:bg-slate-50",
               isUploading ? "pointer-events-none opacity-80" : "",
             ].join(" ")}
           >
@@ -169,25 +169,25 @@ export default function UploadPage() {
             <div className="flex min-h-[320px] flex-col items-center justify-center text-center">
               {isUploading ? (
                 <>
-                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100">
+                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-50 border border-emerald-100">
                     <Loader2 className="h-8 w-8 animate-spin text-[#10B981]" aria-hidden />
                   </div>
-                  <p className="mt-6 text-lg font-semibold text-slate-900">
+                  <p className="mt-6 text-lg font-semibold text-slate-900 tracking-tight">
                     {progressMessages[statusIndex]}
                   </p>
-                  <p className="mt-2 text-sm text-slate-600">
+                  <p className="mt-2 text-sm text-slate-500 font-medium">
                     {selectedFileName ? `Working on ${selectedFileName}` : "Preparing upload"}
                   </p>
                 </>
               ) : (
                 <>
-                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100">
-                    <Upload className="h-8 w-8 text-[#10B981]" aria-hidden />
+                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-55 bg-emerald-50 text-[#10B981] border border-emerald-100 transition-transform duration-300 hover:scale-105">
+                    <Upload className="h-6 w-6" aria-hidden />
                   </div>
-                  <h2 className="mt-6 text-2xl font-semibold text-slate-900">
+                  <h2 className="mt-6 text-2xl font-semibold text-slate-900 tracking-tight">
                     Drag and drop your statement
                   </h2>
-                  <p className="mt-3 max-w-md text-sm leading-6 text-slate-600">
+                  <p className="mt-3 max-w-md text-sm leading-relaxed text-slate-500">
                     We support bank statement CSVs and PDFs. Once uploaded, we parse, categorize,
                     and prepare your dashboard automatically.
                   </p>
@@ -195,14 +195,14 @@ export default function UploadPage() {
                     <button
                       type="button"
                       onClick={openPicker}
-                      className="inline-flex h-11 items-center justify-center rounded-lg bg-[#10B981] px-5 text-sm font-medium text-white transition hover:bg-emerald-600"
+                      className="inline-flex h-10 items-center justify-center rounded-lg bg-[#10B981] px-5 text-sm font-medium text-white transition-all duration-200 hover:bg-emerald-600 hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98] shadow-sm hover:shadow"
                     >
                       Choose file
                     </button>
                     <button
                       type="button"
                       onClick={handleDemoClick}
-                      className="inline-flex h-11 items-center justify-center rounded-lg border border-slate-300 bg-white px-5 text-sm font-medium text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
+                      className="inline-flex h-10 items-center justify-center rounded-lg border border-slate-300 bg-white px-5 text-sm font-medium text-slate-700 transition-all duration-200 hover:border-slate-400 hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98] shadow-sm hover:shadow-sm"
                     >
                       Load Demo
                     </button>
@@ -212,41 +212,41 @@ export default function UploadPage() {
             </div>
           </div>
 
-          <aside className="grid gap-4 rounded-lg bg-slate-50 p-5">
-            <div className="rounded-lg border border-slate-200 bg-white p-4">
+          <aside className="grid gap-4 rounded-lg bg-slate-50 p-5 border border-slate-200/60">
+            <div className="rounded-lg border border-slate-200/80 bg-white p-4 shadow-sm hover:shadow hover:-translate-y-0.5 transition-all duration-300">
               <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-100">
-                  <FileText className="h-5 w-5 text-[#F59E0B]" aria-hidden />
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-50 text-[#F59E0B] border border-amber-100 shrink-0">
+                  <FileText className="h-5 w-5" aria-hidden />
                 </div>
                 <div>
                   <h3 className="text-sm font-semibold text-slate-900">Accepted formats</h3>
-                  <p className="text-sm text-slate-600">CSV and PDF statements up to 10MB.</p>
+                  <p className="text-xs text-slate-500 mt-0.5">CSV and PDF statements up to 10MB.</p>
                 </div>
               </div>
             </div>
 
-            <div className="rounded-lg border border-slate-200 bg-white p-4">
+            <div className="rounded-lg border border-slate-200/80 bg-white p-4 shadow-sm hover:shadow hover:-translate-y-0.5 transition-all duration-300">
               <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-cyan-100">
-                  <Sparkles className="h-5 w-5 text-[#06B6D4]" aria-hidden />
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-cyan-50 text-[#06B6D4] border border-cyan-100 shrink-0">
+                  <Sparkles className="h-5 w-5" aria-hidden />
                 </div>
                 <div>
                   <h3 className="text-sm font-semibold text-slate-900">What happens next</h3>
-                  <p className="text-sm text-slate-600">
+                  <p className="text-xs text-slate-500 mt-0.5">
                     Parsing, categorization, anomaly detection, and dashboard summary generation.
                   </p>
                 </div>
               </div>
             </div>
 
-            <div className="rounded-lg border border-slate-200 bg-white p-4">
+            <div className="rounded-lg border border-slate-200/80 bg-white p-4 shadow-sm hover:shadow hover:-translate-y-0.5 transition-all duration-300">
               <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-violet-100">
-                  <Wand2 className="h-5 w-5 text-[#8B5CF6]" aria-hidden />
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-violet-50 text-[#8B5CF6] border border-violet-100 shrink-0">
+                  <Wand2 className="h-5 w-5" aria-hidden />
                 </div>
                 <div>
                   <h3 className="text-sm font-semibold text-slate-900">Demo mode</h3>
-                  <p className="text-sm text-slate-600">
+                  <p className="text-xs text-slate-500 mt-0.5">
                     Jump in with seeded mock transactions if you want to explore the flow first.
                   </p>
                 </div>
@@ -254,7 +254,7 @@ export default function UploadPage() {
             </div>
 
             {error ? (
-              <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+              <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-xs font-medium text-red-800 animate-pulse">
                 {error}
               </div>
             ) : null}
