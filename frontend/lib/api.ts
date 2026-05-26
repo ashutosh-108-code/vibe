@@ -3,13 +3,10 @@ import axios, { isAxiosError } from "axios"
 import type { Transaction } from "@/types"
 
 /**
- * Local dev: leave NEXT_PUBLIC_API_URL unset so requests go through Next.js
- * rewrites (same origin, no CORS). Production: set to your Railway URL.
+ * Always call same-origin `/api/*`.
+ * Next.js (rewrites) routes those calls to the backend, avoiding CORS/preflight issues.
  */
-const baseURL = process.env.NEXT_PUBLIC_API_URL ?? ""
-
 const api = axios.create({
-  baseURL,
   timeout: 120000,
 })
 
