@@ -16,10 +16,16 @@ class ExpenseCategorizer:
         self._load_or_train()
 
     def _load_or_train(self):
-        if MODEL_PATH.exists():
-            with open(MODEL_PATH, "rb") as f:
-                self.pipeline = pickle.load(f)
-        else:
+        try:
+            if MODEL_PATH.exists():
+                with open(MODEL_PATH, "rb") as f:
+                    self.pipeline = pickle.load(f)
+                # Verify that the loaded pipeline is fully functional and fitted
+                self.pipeline.predict_proba(["test description"])
+            else:
+                self._train()
+        except Exception as e:
+            print(f"Failed to load or validate model from {MODEL_PATH}: {e}. Retraining model...")
             self._train()
 
     def _train(self):
@@ -31,9 +37,12 @@ class ExpenseCategorizer:
             ("clf", MultinomialNB(alpha=0.1)),
         ])
         self.pipeline.fit(texts, labels)
-        MODEL_PATH.parent.mkdir(exist_ok=True)
-        with open(MODEL_PATH, "wb") as f:
-            pickle.dump(self.pipeline, f)
+        try:
+            MODEL_PATH.parent.mkdir(exist_ok=True)
+            with open(MODEL_PATH, "wb") as f:
+                pickle.dump(self.pipeline, f)
+        except Exception as e:
+            print(f"Warning: Could not save trained model to {MODEL_PATH}: {e}")
 
     def categorize(self, description: str) -> tuple[str, float]:
         """Returns (category, confidence). Tries rules first, ML as fallback."""
